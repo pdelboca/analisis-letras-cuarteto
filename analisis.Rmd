@@ -1,0 +1,157 @@
+---
+title: "Análisis de las Palabras más usadas en el Cuarteto Cordobés"
+author: "Patricio Del Boca - Open Data Córdoba"
+date: "23 de julio de 2017"
+header-includes:
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{Open Data Córdoba - www.opendatacordoba.org - @opendatacba}
+- \fancyfoot[LE,RO]{\thepage}
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+library(readr)
+library(dplyr)
+library(tidytext)
+library(stringr)
+library(tidyr)
+```
+
+# Introducción
+
+El objetivo del siguiente análisis es identificar cual es la palabra más usada en las Letras del Cuarteto Cordobés.
+
+# Metodología
+
+Para las canciones se scrapeó de las páginas web [http://www.coveralia.com](http://www.coveralia.com) y [http://www.sonicomusica.com](http://www.sonicomusica.com) las letras de los artistas más reconocidos del Cuarteto Cordobés definido en base a la cantidad de canciones existentes para cada uno de los artistas. (lista de artistas más abajo)
+
+Una vez extraidas las letras de las canciones se prosigió unir las fuentes y remover las palabras más comunes del lenguaje español denominadas comunmente en la jerga técnica como: **stop words** (el, la, vos, yo, tu, el, ella...). La lista completa de palabras eliminadas del análisis puede verse en el [este link](http://www.webmining.cl/wp-content/uploads/2011/03/stopwords.es.txt). 
+
+Luego de extraidas las "stop words" se prosiguió a contabilizar la ocurrencia de cada palabra. Se contabilizó la suma de ocurrencias de la palabra en el conjunto total de canciones y luego para cada artista.
+
+## Consideraciones Metodológicas
+
+Se analiza y contabiliza la ocurrencia de la palabra mas no el contexto o significado de la misma. Ejemplos: 
+
+ - La palabra *quiero* aparece segunda en el ranking mas no se detalla el uso ( por ejemplo **te quiero** vs **yo quiero**).
+ - La palabra *vida* no diferencia si se usa como **te quiero mi vida** o **mi vida no es nada sin ti**.
+ - Tampoco se ha aplicado la técnica conocida como **steeming** es decir, reducir palbras a su raiz. Es por ello que palabras como bailar y bailando aparecen en autores como *la fiesta*.
+ - La lista de palabras a remover/incluir como *stop_words* es editable y configurable. Por ejemplo, si se desea incorporar y hacer una comparación específica de *el* vs *ella*
+
+
+\newpage
+# Analisis
+```{r carga_datos, cache=TRUE}
+# Letras
+letrasSonico <- read_csv("letras_sonico.csv") %>%
+  filter(letraCancion != "Letra no disponible") %>%
+  mutate(letraCancion = gsub( " *\\(.*?\\) *", "", letraCancion),
+         letraCancion = gsub( "\n", " ", letraCancion)) %>%
+  filter(nombreArtista %in% c("La Mona Jimenez", "Banda XXI", "Damian Cordoba", "Banda Registrada"))
+
+letrasCoveralia <- read_csv("letras_coveralia.csv") %>%
+  mutate(letraCancion = str_replace(letraCancion,urlCancion, " ")) %>%
+  filter(nombreArtista %in% c("la barra", "sabroso", "tru la la", "la fiesta", "ulises bueno", "jean carlos"))
+
+letras <- rbind(letrasSonico, letrasCoveralia) %>%
+  mutate(nombreArtista = tolower(nombreArtista)) %>%
+  mutate(letraCancion = str_replace(letraCancion, "corazon", "corazón"))
+
+# Stop Words Español
+stopWords <- scan("http://www.webmining.cl/wp-content/uploads/2011/03/stopwords.es.txt", character())
+customStopWords <- strsplit("vas pa vos bis has estribillo qe ie ii mmm mmmm eh oh na mee repite bom taka ye ay di ven", " ")[[1]]
+stopWords <- c(stopWords, customStopWords)
+```
+
+## Cantidad de Canciones por Autor
+
+Se analizaron 10 autores y un total de `r nrow(letras)` canciones.
+```{r cantidad_canciones}
+knitr::kable(
+  letras %>%
+  group_by(nombreArtista) %>% 
+  summarise(canciones = n()) %>%
+  arrange(desc(canciones))
+)
+```
+
+## 15 Palabras más usadas
+
+A continuacion se detallan las 15 palabras más utlizadas en el conjunto de canciones analizadas:
+
+```{r palabra_mas_usada}
+topN <- 15
+knitr::kable(
+  letras %>%
+    unnest_tokens(palabra, letraCancion) %>% 
+    filter(!(palabra %in% stopWords)) %>%
+    count(palabra, sort = TRUE) %>%
+    head(topN) %>%
+    mutate(ranking = row_number()) %>% 
+    select(ranking, palabra, n)
+)
+
+str_detect(letras$urlCancion, pattern = "---")
+```
+
+```{r palabra_mas_usada}
+topN <- 15
+knitr::kable(
+  letras %>%
+    filter(!str_detect(letras$urlCancion, pattern = "---")) %>%
+    unnest_tokens(palabra, letraCancion) %>% 
+    filter(!(palabra %in% stopWords)) %>%
+    count(palabra, sort = TRUE) %>%
+    head(topN) %>%
+    mutate(ranking = row_number()) %>% 
+    select(ranking, palabra, n)
+)
+```
+\newpage
+
+## 15 Palabras más utilizadas por cada Autor
+
+A continuación se desglosan las palabras más utilizadas por cada autor
+
+```{r}
+top15Artistas <- letras %>%
+    select(nombreArtista, letraCancion) %>% 
+    unnest_tokens(palabra, letraCancion) %>% 
+    filter(!(palabra %in% stopWords)) %>%
+    group_by(nombreArtista) %>%
+    count(palabra) %>%
+    arrange(nombreArtista, desc(n)) %>%
+    slice(1:topN) %>% 
+    mutate(ranking = row_number()) %>% 
+    select(nombreArtista, palabra, ranking) %>% 
+    spread(nombreArtista, palabra)
+
+knitr::kable(top15Artistas[,1:6])
+knitr::kable(top15Artistas[,c(1,7:11)])
+```
+
+
+## 
+```{r}
+contarOcurrencias <- function(texto){
+  sum(str_detect(texto, 
+           c("\\bamor\\b","\\bquiero\\b","\\bvida\\b","\\bcorazón\\b","\\bmujer\\b","\\bnoche\\b","\\balma\\b","\\bcuerpo\\b","\\bsiento\\b","\\bbailar\\b","\\bpiel\\b","\\bvivir\\b","\\bloco\\b","\\bmundo\\b","\\bbesos\\b"))
+)  
+}
+
+library(purrr)
+letrasOcurrencia <- letras %>% 
+  filter(!str_detect(letras$urlCancion, pattern = "---")) %>%
+  mutate(ocurrencias = letraCancion %>% map_dbl(~contarOcurrencias(.))) %>%
+  arrange(desc(ocurrencias)) %>%
+  head(15)
+
+x <- data.frame(
+  palabra = c("\\bamor\\b","\\bquiero\\b","\\bvida\\b","\\bcorazón\\b","\\bmujer\\b","\\bnoche\\b","\\balma\\b","\\bcuerpo\\b","\\bsiento\\b","\\bbailar\\b","\\bpiel\\b","\\bvivir\\b","\\bloco\\b","\\bmundo\\b","\\bbesos\\b"),
+  aparece = str_detect(letrasOcurrencia$letraCancion[10], 
+           c("\\bamor\\b","\\bquiero\\b","\\bvida\\b","\\bcorazón\\b","\\bmujer\\b","\\bnoche\\b","\\balma\\b","\\bcuerpo\\b","\\bsiento\\b","\\bbailar\\b","\\bpiel\\b","\\bvivir\\b","\\bloco\\b","\\bmundo\\b","\\bbesos\\b"))
+)
+letrasOcurrencia
+```
